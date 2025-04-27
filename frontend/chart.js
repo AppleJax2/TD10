@@ -15,10 +15,45 @@ document.addEventListener('DOMContentLoaded', () => {
     const modelSelect = document.getElementById('modelSelect');
     const symbolInput = document.getElementById('symbolInput');
     const loadChartButton = document.getElementById('loadChartButton');
+    const loadChartSpinner = document.getElementById('loadChartSpinner');
     const chartContainer = document.getElementById('chartContainer');
     const chartElement = document.getElementById('chart');
     const signalInfoDiv = document.getElementById('signalInfo');
     const signalDataSpan = document.getElementById('signalData');
+    const statusIndicator = document.getElementById('statusIndicator');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebar = document.getElementById('sidebar');
+    const mainContent = document.getElementById('mainContent');
+    const globalStatusIndicator = document.getElementById('globalStatusIndicator');
+    const statusMessage = document.getElementById('statusMessage');
+    
+    // --- Sidebar Toggle Functionality --- 
+    sidebarToggle.addEventListener('click', () => {
+        sidebar.classList.toggle('show');
+    });
+
+    // Close sidebar when clicking outside on small screens
+    document.addEventListener('click', (event) => {
+        const isSmallScreen = window.innerWidth < 768;
+        const clickedOutsideSidebar = !sidebar.contains(event.target) && event.target !== sidebarToggle;
+        
+        if (isSmallScreen && clickedOutsideSidebar && sidebar.classList.contains('show')) {
+            sidebar.classList.remove('show');
+        }
+    });
+    
+    // --- Status Toast Notifications ---
+    function showToast(message, type = 'info', duration = 3000) {
+        statusMessage.textContent = message;
+        globalStatusIndicator.className = `toast align-items-center text-bg-${type}`;
+        globalStatusIndicator.style.display = 'block';
+        
+        const bsToast = new bootstrap.Toast(globalStatusIndicator, {
+            autohide: true,
+            delay: duration
+        });
+        bsToast.show();
+    }
 
     // --- Authentication & Logout ---
     if (!token) {
@@ -62,11 +97,6 @@ document.addEventListener('DOMContentLoaded', () => {
             },
         });
         priceSeries = chart.addCandlestickSeries(); // Use candlestick for price visualization
-        // Example initial data - replace with fetched data
-        priceSeries.setData([
-             { time: '2022-01-01', open: 100, high: 105, low: 98, close: 102 },
-             { time: '2022-01-02', open: 102, high: 103, low: 99, close: 100 },
-        ]);
         chart.timeScale().fitContent();
     }
 
@@ -85,6 +115,9 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Fetch Models for Dropdown --- 
     async function fetchModelsForSelect() {
         try {
+            // Show loading state in select
+            modelSelect.innerHTML = '<option selected disabled value="">Loading models...</option>';
+            
             const response = await fetch(`${API_BASE_URL}/api/models`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
@@ -92,16 +125,28 @@ document.addEventListener('DOMContentLoaded', () => {
             const models = await response.json();
             
             modelSelect.innerHTML = '<option selected disabled value="">Choose...</option>'; // Reset
-            models.filter(m => m.status === 'trained').forEach(model => { // Only show trained models
+            
+            const trainedModels = models.filter(m => m.status === 'trained');
+            
+            if (trainedModels.length === 0) {
+                modelSelect.innerHTML = '<option disabled selected value="">No trained models available</option>';
+                showToast('No trained models found. Please train a model first.', 'warning');
+                return;
+            }
+            
+            trainedModels.forEach(model => {
                 const option = document.createElement('option');
                 option.value = model._id;
                 option.textContent = `${model.name} (${model.symbol})`;
                 option.dataset.symbol = model.symbol; // Store symbol for easy access
                 modelSelect.appendChild(option);
             });
+            
+            showToast(`Loaded ${trainedModels.length} trained models`, 'success', 2000);
         } catch (error) {
-            console.error('Error populating models:', error);
-            modelSelect.innerHTML = '<option disabled>Error loading models</option>';
+            modelSelect.innerHTML = '<option disabled selected value="">Error loading models</option>';
+            showToast('Failed to load models', 'danger');
+            updateStatus('Error: ' + error.message, 'danger');
         }
     }
     
@@ -113,80 +158,192 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
+    // --- Fetch Historical Data Function ---
+    async function fetchHistoricalData(symbol, range = 100) {
+        try {
+            updateStatus('Fetching historical data...', 'info');
+            const response = await fetch(`${API_BASE_URL}/api/data/historical/${symbol}?days=${range}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`Failed to fetch historical data (${response.status})`);
+            }
+            
+            const data = await response.json();
+            
+            if (!data || !data.historical || !Array.isArray(data.historical)) {
+                throw new Error('Invalid historical data format');
+            }
+            
+            // Transform API data to chart library format
+            // FMP data is newest first, we need to reverse for chronological order
+            const formattedData = data.historical
+                .map(item => ({
+                    time: new Date(item.date).getTime() / 1000, // Convert to UNIX timestamp
+                    open: item.open,
+                    high: item.high,
+                    low: item.low,
+                    close: item.close,
+                    volume: item.volume
+                }))
+                .reverse(); // Reverse to get chronological order
+            
+            // Get the most recent closing price for future updates
+            if (formattedData.length > 0) {
+                lastClosePrice = formattedData[formattedData.length - 1].close;
+                lastTimestamp = formattedData[formattedData.length - 1].time;
+            }
+            
+            showToast(`Loaded ${formattedData.length} historical data points`, 'success', 2000);
+            updateStatus('Historical data loaded', 'success', 3000);
+            return formattedData;
+        } catch (error) {
+            updateStatus(`Error: ${error.message}`, 'danger');
+            showToast(`Error loading data: ${error.message}`, 'danger');
+            throw error;
+        }
+    }
+    
+    // --- Update Status Indicator ---
+    function updateStatus(message, type = 'info', autoHideAfter = 0) {
+        statusIndicator.textContent = message;
+        statusIndicator.className = `mt-2 text-center alert alert-${type}`;
+        statusIndicator.style.display = 'block';
+        
+        if (autoHideAfter > 0) {
+            setTimeout(() => {
+                statusIndicator.style.display = 'none';
+            }, autoHideAfter);
+        }
+    }
+
     // --- Load Chart Button Handler ---
-    loadChartButton.addEventListener('click', () => {
+    loadChartButton.addEventListener('click', async () => {
         const selectedModelId = modelSelect.value;
         const symbol = symbolInput.value.toUpperCase();
 
         if (!symbol) {
-            alert('Please enter a symbol.');
+            showToast('Please enter a symbol', 'warning');
+            symbolInput.focus();
             return;
         }
-        // Model selection is optional for just viewing price, mandatory for signals
         
-        console.log(`Loading chart for symbol: ${symbol}, Model: ${selectedModelId || 'None'}`);
+        // Show loading state
+        loadChartButton.disabled = true;
+        loadChartSpinner.classList.remove('d-none');
         
         // Stop previous updates if any
         if (liveUpdateInterval) clearInterval(liveUpdateInterval);
         signalMarkers = []; // Clear old markers
         signalInfoDiv.style.display = 'none';
 
-        // TODO: Fetch HISTORICAL data first to populate the chart initially
-        // For now, we just re-initialize with dummy data
-        initializeChart(); 
-        
-        // Start live updates
-        startLiveUpdates(symbol, selectedModelId);
+        try {
+            // Initialize chart
+            initializeChart();
+            
+            // Fetch historical data first
+            const historicalData = await fetchHistoricalData(symbol);
+            
+            // Set the historical data to the chart
+            priceSeries.setData(historicalData);
+            
+            // Fit chart content to view all historical data
+            chart.timeScale().fitContent();
+            
+            // Start live updates
+            startLiveUpdates(symbol, selectedModelId);
+            
+            // Show success message
+            showToast(`Chart for ${symbol} loaded successfully`, 'success');
+        } catch (error) {
+            updateStatus(`Failed to load chart: ${error.message}`, 'danger');
+        } finally {
+            // Reset button state
+            loadChartButton.disabled = false;
+            loadChartSpinner.classList.add('d-none');
+        }
     });
 
-    // --- Live Data Simulation & Signal Fetching ---
-    let lastTimestamp = Math.floor(new Date('2022-01-02').getTime() / 1000);
+    // --- Live Data Fetching & Signal Fetching ---
+    let lastTimestamp = Math.floor(Date.now() / 1000);
     let lastClosePrice = 100;
 
     function startLiveUpdates(symbol, modelId) {
+        updateStatus('Live updates started', 'success', 3000);
+        
+        // Clear any existing interval
+        if (liveUpdateInterval) clearInterval(liveUpdateInterval);
+        
         liveUpdateInterval = setInterval(async () => {
             try {
-                // 1. Fetch latest price (using dummy endpoint for now)
-                const priceResponse = await fetch(`${API_BASE_URL}/api/data/price?symbol=${symbol}`, {
+                // 1. Fetch latest price data
+                const priceResponse = await fetch(`${API_BASE_URL}/api/data/realtime/${symbol}`, {
                      headers: { 'Authorization': `Bearer ${token}` }
                 });
-                if (!priceResponse.ok) throw new Error('Failed to fetch price');
-                const priceData = await priceResponse.json();
-                const currentPrice = parseFloat(priceData.price);
                 
-                // Create a new data point (simulate OHLC)
-                lastTimestamp += 60; // Simulate 1 minute interval
+                if (!priceResponse.ok) throw new Error('Failed to fetch price data');
+                
+                const priceData = await priceResponse.json();
+                
+                if (!priceData || !priceData[0]) {
+                    throw new Error('Invalid price data format');
+                }
+                
+                const quote = priceData[0];
+                const currentPrice = parseFloat(quote.price);
+                const currentTimestamp = Math.floor(new Date(quote.timestamp || Date.now()).getTime() / 1000);
+                
+                // Create a new data point
                 const newDataPoint = {
-                    time: lastTimestamp,
+                    time: currentTimestamp,
                     open: lastClosePrice,
-                    high: Math.max(lastClosePrice, currentPrice) + Math.random() * 2, // Simulate wick
-                    low: Math.min(lastClosePrice, currentPrice) - Math.random() * 2, // Simulate wick
+                    high: Math.max(lastClosePrice, currentPrice),
+                    low: Math.min(lastClosePrice, currentPrice),
                     close: currentPrice
                 };
+                
+                // Update the price series with new data
                 priceSeries.update(newDataPoint);
                 lastClosePrice = currentPrice;
+                lastTimestamp = currentTimestamp;
 
                 // 2. If a model is selected, fetch signal
                 if (modelId) {
-                    const signalResponse = await fetch(`${API_BASE_URL}/api/data/signal?modelId=${modelId}&price=${currentPrice}`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    if (!signalResponse.ok) {
-                         console.error('Failed to fetch signal');
-                    } else {
+                    try {
+                        const signalEndpoint = `${API_BASE_URL}/api/models/${modelId}/signal`;
+                        const signalResponse = await fetch(signalEndpoint, {
+                            method: 'POST',
+                            headers: { 
+                                'Authorization': `Bearer ${token}`,
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                symbol: symbol,
+                                price: currentPrice,
+                                threshold: 0.01 // Default threshold, could be made configurable
+                            })
+                        });
+                        
+                        if (!signalResponse.ok) {
+                            throw new Error(`Signal API error: ${signalResponse.status}`);
+                        }
+                        
                         const signalData = await signalResponse.json();
-                        console.log('Received Signal:', signalData);
-                        displaySignal(signalData, newDataPoint.time);
+                        
+                        if (signalData && signalData.signal) {
+                            displaySignal(signalData.signal, currentTimestamp);
+                        }
+                    } catch (signalError) {
+                        // We don't want to stop price updates if signal fetch fails
+                        updateStatus(`Signal error: ${signalError.message}`, 'warning', 5000);
                     }
                 }
 
             } catch (error) {
-                console.error('Error during live update:', error);
-                // Optionally stop updates on error
-                // if (liveUpdateInterval) clearInterval(liveUpdateInterval);
-                // alert('Live updates failed.');
+                updateStatus('Disconnected - retrying...', 'warning');
             }
-        }, 5000); // Update every 5 seconds (adjust interval as needed)
+        }, 60000); // Update every 60 seconds
     }
 
     // --- Signal Display --- 
@@ -201,16 +358,21 @@ document.addEventListener('DOMContentLoaded', () => {
             position: signal.direction === 'BUY' ? 'belowBar' : 'aboveBar',
             color: signal.direction === 'BUY' ? '#26a69a' : '#ef5350',
             shape: signal.direction === 'BUY' ? 'arrowUp' : 'arrowDown',
-            text: `${signal.direction} @ ${signal.value.toFixed(2)} (Conf: ${signal.confidence})`
+            text: `${signal.direction} @ ${signal.value.toFixed(2)} (Conf: ${signal.confidence.toFixed(2)})`
         };
         
         signalMarkers.push(marker);
         priceSeries.setMarkers(signalMarkers); // Update markers on the series
 
         // Update signal info display
-        signalDataSpan.textContent = `${signal.direction} at ${signal.value.toFixed(2)} (Confidence: ${signal.confidence * 100}%)`;
+        signalDataSpan.textContent = `${signal.direction} at $${signal.currentPrice.toFixed(2)} (Confidence: ${(signal.confidence * 100).toFixed(1)}%)`;
         signalInfoDiv.className = `mt-3 alert ${signal.direction === 'BUY' ? 'alert-success' : 'alert-danger'}`;
         signalInfoDiv.style.display = 'block';
+        
+        // Also show toast for significant signals
+        if (signal.confidence > 0.7) {
+            showToast(`New ${signal.direction} signal with high confidence!`, signal.direction === 'BUY' ? 'success' : 'danger');
+        }
     }
 
     // --- Initial Setup --- 

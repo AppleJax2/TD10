@@ -5,14 +5,52 @@ const API_BASE_URL = /* import.meta.env.VITE_API_URL || */ 'http://localhost:500
 let userModels = [];
 // Global state for managing active polling intervals
 const activePolls = {};
+// Global variable to store model ID for deletion confirmation
+let modelToDelete = null;
 
 document.addEventListener('DOMContentLoaded', () => {
     const token = localStorage.getItem('token');
     const logoutButton = document.getElementById('logoutButton');
     const createModelForm = document.getElementById('createModelForm');
+    const createModelBtn = document.getElementById('createModelBtn');
     const modelListContainer = document.getElementById('modelList');
     const noModelsMessage = document.getElementById('noModelsMessage');
     const dashboardErrorMessagesDiv = document.getElementById('dashboardErrorMessages');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    const sidebar = document.getElementById('sidebar');
+    const mainContent = document.getElementById('mainContent');
+    const deleteConfirmModal = new bootstrap.Modal(document.getElementById('deleteConfirmModal'));
+    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+    const globalStatusIndicator = document.getElementById('globalStatusIndicator');
+    const statusMessage = document.getElementById('statusMessage');
+
+    // --- Sidebar Toggle Functionality --- 
+    sidebarToggle.addEventListener('click', () => {
+        sidebar.classList.toggle('show');
+    });
+
+    // Close sidebar when clicking outside on small screens
+    document.addEventListener('click', (event) => {
+        const isSmallScreen = window.innerWidth < 768;
+        const clickedOutsideSidebar = !sidebar.contains(event.target) && event.target !== sidebarToggle;
+        
+        if (isSmallScreen && clickedOutsideSidebar && sidebar.classList.contains('show')) {
+            sidebar.classList.remove('show');
+        }
+    });
+
+    // --- Status Toast Notifications ---
+    function showToast(message, type = 'info', duration = 3000) {
+        statusMessage.textContent = message;
+        globalStatusIndicator.className = `toast align-items-center text-bg-${type}`;
+        globalStatusIndicator.style.display = 'block';
+        
+        const bsToast = new bootstrap.Toast(globalStatusIndicator, {
+            autohide: true,
+            delay: duration
+        });
+        bsToast.show();
+    }
 
     // --- Utility for Displaying Errors ---
     const displayError = (message, container = dashboardErrorMessagesDiv) => {
@@ -25,8 +63,8 @@ document.addEventListener('DOMContentLoaded', () => {
         if (container) {
             container.innerHTML = alertHtml;
         } else {
-            // Fallback if the specific container isn't found (shouldn't happen)
-            console.error("Error display container not found, logging message:", message);
+            console.error("Error display container not found:", message);
+            showToast("Error: " + message, 'danger');
         }
     };
 
@@ -52,6 +90,17 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Model Fetching and Display --- 
     async function fetchModels() {
         try {
+            // Show loading state
+            modelListContainer.innerHTML = `
+                <div class="text-center p-3">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Loading models...</p>
+                </div>
+            `;
+            noModelsMessage.style.display = 'none';
+            
             const response = await fetch(`${API_BASE_URL}/api/models`, {
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -67,11 +116,14 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             userModels = await response.json();
             renderModelList();
+            
+            // Show a success message
+            if (userModels.length > 0) {
+                showToast(`Successfully loaded ${userModels.length} models`, 'success');
+            }
         } catch (error) {
             console.error('Error fetching models:', error);
-            // Use the new error display
             displayError(`Failed to load models: ${error.message}`, modelListContainer);
-            // Ensure no models message is hidden if error occurs
             if (noModelsMessage) noModelsMessage.style.display = 'none'; 
         }
     }
@@ -124,7 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Add delete listener
         const deleteButton = div.querySelector('.delete-button');
         if (deleteButton) { 
-            deleteButton.addEventListener('click', handleDeleteModel);
+            deleteButton.addEventListener('click', openDeleteConfirmation);
         }
 
         return div;
@@ -144,6 +196,12 @@ document.addEventListener('DOMContentLoaded', () => {
     createModelForm.addEventListener('submit', async (event) => {
         event.preventDefault();
         clearErrors(); // Clear previous general errors
+        
+        // Show loading state
+        const originalBtnText = createModelBtn.innerHTML;
+        createModelBtn.disabled = true;
+        createModelBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Creating...';
+
         const modelName = document.getElementById('modelName').value;
         const modelSymbol = document.getElementById('modelSymbol').value.toUpperCase();
         const modelType = document.getElementById('modelType').value;
@@ -153,6 +211,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Basic validation
         if (!modelName || !modelSymbol || !modelType || !featuresInput || !modelTarget) {
             displayError('Please fill in all required fields.');
+            createModelBtn.disabled = false;
+            createModelBtn.innerHTML = originalBtnText;
             return;
         }
         
@@ -160,6 +220,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const modelFeatures = featuresInput.split(',').map(f => f.trim()).filter(f => f);
         if (modelFeatures.length === 0) {
              displayError('Please provide at least one valid feature.');
+             createModelBtn.disabled = false;
+             createModelBtn.innerHTML = originalBtnText;
              return;
         }
 
@@ -187,15 +249,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const createdModel = await response.json();
-            console.log('Model created:', createdModel);
             userModels.push(createdModel); // Add to local list
             renderModelList(); // Re-render the list
             createModelForm.reset(); // Clear the form
-
+            
+            // Show success notification
+            showToast(`Model "${modelName}" created successfully`, 'success');
         } catch (error) {
             console.error('Error creating model:', error);
-            // Use the new error display
             displayError(`Failed to create model: ${error.message}`);
+        } finally {
+            // Restore button state
+            createModelBtn.disabled = false;
+            createModelBtn.innerHTML = originalBtnText;
         }
     });
 
@@ -223,9 +289,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: {
                     'Authorization': `Bearer ${token}`,
                     'Content-Type': 'application/json' // Important even if body is empty/optional
-                },
-                // Optionally send symbol if needed, though ideally backend gets it from model
-                // body: JSON.stringify({ symbol: symbol }) 
+                }
             });
 
             if (!response.ok) {
@@ -234,8 +298,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
 
             const result = await response.json();
-            console.log('Training initiated:', result);
-            // alert(result.message || `Training started for model ${modelId}. Check status.`); // Replaced with polling
             
             // Update the model status locally and re-render (optimistic update)
             const modelIndex = userModels.findIndex(m => m._id === modelId);
@@ -243,11 +305,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 userModels[modelIndex].status = 'training';
                 renderModelList(); // Re-render to show 'training' and disable button
                 pollModelStatus(modelId); // Start polling for status updates
+                showToast('Training started. This may take a few minutes.', 'info');
             }
             
         } catch (error) {
             console.error('Error initiating training:', error);
-            // alert(`Failed to start training: ${error.message}`);
             displayError(`Failed to start training: ${error.message}`, modelErrorContainer);
             // Reset button state on error
             button.disabled = false;
@@ -261,32 +323,48 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- Model Deletion --- 
-    async function handleDeleteModel(event) {
+    // --- Model Deletion Modal --- 
+    function openDeleteConfirmation(event) {
         const button = event.currentTarget;
-        const modelId = button.dataset.modelId;
-        const modelErrorContainer = document.getElementById(`error-message-${modelId}`);
+        modelToDelete = button.dataset.modelId;
         
-        clearErrors(); // Clear general errors
-        clearErrors(modelErrorContainer); // Clear specific model errors
-
-        if (!modelId) {
+        if (!modelToDelete) {
             console.error('Model ID not found for delete button');
             displayError('Cannot delete model: ID missing.');
             return;
         }
+        
+        // Find model name for more descriptive modal
+        const model = userModels.find(m => m._id === modelToDelete);
+        if (model) {
+            document.querySelector('#deleteConfirmModal .modal-body').textContent = 
+                `Are you sure you want to delete the model "${model.name}"? This action cannot be undone.`;
+        }
+        
+        deleteConfirmModal.show();
+    }
+    
+    // Confirm delete button handler
+    confirmDeleteBtn.addEventListener('click', handleDeleteModel);
 
-        // Confirmation dialog
-        if (!confirm('Are you sure you want to delete this model?')) {
+    // --- Model Deletion --- 
+    async function handleDeleteModel() {
+        if (!modelToDelete) {
+            console.error('No model selected for deletion');
+            deleteConfirmModal.hide();
             return;
         }
+        
+        const modelErrorContainer = document.getElementById(`error-message-${modelToDelete}`);
+        clearErrors(); // Clear general errors
+        clearErrors(modelErrorContainer); // Clear specific model errors
 
-        // Disable button temporarily
-        button.disabled = true;
-        button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>';
+        // Disable button and show loading indicator
+        confirmDeleteBtn.disabled = true;
+        confirmDeleteBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Deleting...';
 
         try {
-            const response = await fetch(`${API_BASE_URL}/api/models/${modelId}`, {
+            const response = await fetch(`${API_BASE_URL}/api/models/${modelToDelete}`, {
                 method: 'DELETE',
                 headers: {
                     'Authorization': `Bearer ${token}`
@@ -298,19 +376,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
             }
 
-            console.log('Model deleted:', modelId);
+            // Find model name for notification
+            const modelName = userModels.find(m => m._id === modelToDelete)?.name || "Model";
+            
             // Remove model from local state and re-render
-            userModels = userModels.filter(m => m._id !== modelId);
+            userModels = userModels.filter(m => m._id !== modelToDelete);
             renderModelList();
+            
             // Stop polling if it was active for this model
-            stopPolling(modelId);
+            stopPolling(modelToDelete);
+            
+            // Show success notification
+            showToast(`${modelName} deleted successfully`, 'success');
+            
+            // Reset and hide modal
+            modelToDelete = null;
+            deleteConfirmModal.hide();
 
         } catch (error) {
             console.error('Error deleting model:', error);
-            displayError(`Failed to delete model: ${error.message}`, modelErrorContainer); 
-            // Re-enable button on error
-            button.disabled = false;
-            button.innerHTML = 'Delete';
+            displayError(`Failed to delete model: ${error.message}`); 
+            // Modal will stay open to show the error
+        } finally {
+            // Reset button state
+            confirmDeleteBtn.disabled = false;
+            confirmDeleteBtn.innerHTML = 'Delete';
         }
     }
 
@@ -320,11 +410,9 @@ document.addEventListener('DOMContentLoaded', () => {
     function pollModelStatus(modelId) {
         // Avoid starting multiple polls for the same model
         if (activePolls[modelId]) {
-            console.log(`Polling already active for model ${modelId}`);
             return;
         }
 
-        console.log(`Starting polling for model ${modelId}`);
         activePolls[modelId] = setInterval(async () => {
             try {
                 const response = await fetch(`${API_BASE_URL}/api/models/${modelId}`, { // Assuming GET /api/models/:id gives full model details
@@ -335,10 +423,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 if (!response.ok) {
                     if (response.status === 404) {
-                        console.warn(`Model ${modelId} not found during polling (might be deleted). Stopping poll.`);
                         stopPolling(modelId);
                     } else if (response.status === 401 || response.status === 403) {
-                         console.error('Authentication error during polling. Redirecting.');
                          stopPolling(modelId);
                          localStorage.removeItem('token');
                          window.location.href = 'index.html';
@@ -355,26 +441,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (modelIndex > -1) {
                     // Check if status changed from 'training'
                     if (userModels[modelIndex].status === 'training' && updatedModel.status !== 'training') {
-                        console.log(`Model ${modelId} finished training. Status: ${updatedModel.status}. Stopping poll.`);
                         stopPolling(modelId);
-                        // Update local data and re-render ONLY if status changed
+                        
+                        // Show toast notification based on status
+                        if (updatedModel.status === 'trained') {
+                            showToast(`Model "${updatedModel.name}" training completed successfully!`, 'success');
+                        } else if (updatedModel.status === 'error') {
+                            showToast(`Model "${updatedModel.name}" training failed.`, 'danger');
+                        }
+                        
+                        // Update local data and re-render
                         userModels[modelIndex] = updatedModel;
                         renderModelList(); 
                     } else if (userModels[modelIndex].status !== updatedModel.status) {
-                         // Update status if it changed for other reasons (though less likely while polling)
+                         // Update status if it changed for other reasons
                          userModels[modelIndex] = updatedModel;
                          renderModelList();
                     }
-                    // If still training, do nothing, wait for next interval
                 } else {
-                    console.warn(`Model ${modelId} not found in local list during polling. Stopping poll.`);
                     stopPolling(modelId);
                 }
 
             } catch (error) {
                 console.error(`Error polling status for model ${modelId}:`, error);
-                // Potentially display error, but avoid flooding UI. Maybe stop polling after N errors.
-                // Display error in the specific model's error area
                 const modelErrorContainer = document.getElementById(`error-message-${modelId}`);
                 displayError(`Polling failed: ${error.message}`, modelErrorContainer);
                 stopPolling(modelId); // Stop polling on error
@@ -384,7 +473,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function stopPolling(modelId) {
         if (activePolls[modelId]) {
-            console.log(`Stopping polling for model ${modelId}`);
             clearInterval(activePolls[modelId]);
             delete activePolls[modelId];
         }
