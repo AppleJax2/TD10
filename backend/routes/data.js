@@ -3,6 +3,32 @@ const router = express.Router();
 const { spawn } = require('child_process');
 const path = require('path');
 const auth = require('../middleware/auth'); // Import auth middleware
+const axios = require('axios');
+const config = require('../config/config');
+
+// Cache for financial data
+const cache = {
+  historical: {},   // Format: { symbol: { data, timestamp } }
+  realtime: {}      // Format: { symbol: { data, timestamp } }
+};
+
+// Cache expiration time (in milliseconds)
+const CACHE_EXPIRY = {
+  historical: 24 * 60 * 60 * 1000,  // 24 hours for historical data
+  realtime: 60 * 1000               // 1 minute for real-time data
+};
+
+/**
+ * Check if cached data is valid
+ * @param {Object} cachedData - The cached data object
+ * @param {number} expiryTime - Cache expiry time in milliseconds
+ * @returns {boolean} - Whether the cache is valid
+ */
+function isCacheValid(cachedData, expiryTime) {
+  if (!cachedData || !cachedData.timestamp) return false;
+  const now = Date.now();
+  return (now - cachedData.timestamp) < expiryTime;
+}
 
 // @route   GET api/data/price
 // @desc    Get price data for a symbol (placeholder)
@@ -79,6 +105,116 @@ router.get('/signal', auth, async (req, res) => {
     }
 });
 
-// TODO: Add route for historical data fetching later (/api/data/historical/:symbol)
+/**
+ * @route   GET /api/data/historical/:symbol
+ * @desc    Get historical data for a symbol
+ * @access  Private
+ */
+router.get('/historical/:symbol', auth, async (req, res) => {
+  const { symbol } = req.params;
+  const { days = 365 } = req.query;
+  
+  try {
+    // Check cache first
+    if (cache.historical[symbol] && isCacheValid(cache.historical[symbol], CACHE_EXPIRY.historical)) {
+      return res.json(cache.historical[symbol].data);
+    }
+    
+    // Fetch data from Financial Modeling Prep API
+    const response = await axios.get(
+      `${config.fmp.baseUrl}/historical-price-full/${symbol}`,
+      {
+        params: {
+          apikey: config.fmp.apiKey,
+          serietype: 'line',
+          from: (() => {
+            const date = new Date();
+            date.setDate(date.getDate() - parseInt(days));
+            return date.toISOString().split('T')[0];
+          })()
+        }
+      }
+    );
+    
+    // Update cache
+    cache.historical[symbol] = {
+      data: response.data,
+      timestamp: Date.now()
+    };
+    
+    res.json(response.data);
+  } catch (err) {
+    console.error(`Error fetching historical data for ${symbol}:`, err.message);
+    res.status(500).json({ message: 'Error fetching historical data' });
+  }
+});
+
+/**
+ * @route   GET /api/data/realtime/:symbol
+ * @desc    Get real-time data for a symbol
+ * @access  Private
+ */
+router.get('/realtime/:symbol', auth, async (req, res) => {
+  const { symbol } = req.params;
+  
+  try {
+    // Check cache first
+    if (cache.realtime[symbol] && isCacheValid(cache.realtime[symbol], CACHE_EXPIRY.realtime)) {
+      return res.json(cache.realtime[symbol].data);
+    }
+    
+    // Fetch data from Financial Modeling Prep API
+    const response = await axios.get(
+      `${config.fmp.baseUrl}/quote/${symbol}`,
+      {
+        params: {
+          apikey: config.fmp.apiKey
+        }
+      }
+    );
+    
+    // Update cache
+    cache.realtime[symbol] = {
+      data: response.data,
+      timestamp: Date.now()
+    };
+    
+    res.json(response.data);
+  } catch (err) {
+    console.error(`Error fetching real-time data for ${symbol}:`, err.message);
+    res.status(500).json({ message: 'Error fetching real-time data' });
+  }
+});
+
+/**
+ * @route   GET /api/data/search
+ * @desc    Search for symbols
+ * @access  Private
+ */
+router.get('/search', auth, async (req, res) => {
+  const { query } = req.query;
+  
+  if (!query) {
+    return res.status(400).json({ message: 'Query parameter is required' });
+  }
+  
+  try {
+    const response = await axios.get(
+      `${config.fmp.baseUrl}/search`,
+      {
+        params: {
+          query,
+          limit: 10,
+          apikey: config.fmp.apiKey
+        }
+      }
+    );
+    
+    res.json(response.data);
+  } catch (err) {
+    console.error(`Error searching for symbols with query "${query}":`, err.message);
+    res.status(500).json({ message: 'Error searching for symbols' });
+  }
+});
 
 module.exports = router; 

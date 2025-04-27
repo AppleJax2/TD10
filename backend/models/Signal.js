@@ -3,22 +3,21 @@ const mongoose = require('mongoose');
 const SignalSchema = new mongoose.Schema({
     modelId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'Model',
+        ref: 'model',
         required: true
     },
     symbol: {
         type: String,
-        required: true,
-        uppercase: true,
-        trim: true
+        required: true
     },
     timestamp: {
         type: Date,
-        required: true,
-        index: true // Index for faster time-based queries
+        default: Date.now,
+        required: true
     },
     value: {
-        type: Number // Could represent predicted price, signal strength, etc.
+        type: Number,
+        required: true
     },
     direction: {
         type: String,
@@ -26,11 +25,19 @@ const SignalSchema = new mongoose.Schema({
         required: true
     },
     confidence: {
-        type: Number, // Confidence score (e.g., 0-1)
+        type: Number,
         min: 0,
-        max: 1
+        max: 1,
+        required: true
+    },
+    currentPrice: {
+        type: Number,
+        required: true
+    },
+    predictedPrice: {
+        type: Number,
+        required: true
     }
-    // Add other relevant fields if needed
 });
 
-module.exports = mongoose.model('Signal', SignalSchema); 
+module.exports = mongoose.model('signal', SignalSchema); 

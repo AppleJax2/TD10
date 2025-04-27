@@ -1,33 +1,36 @@
 const jwt = require('jsonwebtoken');
+const config = require('../config/config');
+const User = require('../models/User');
 
-module.exports = function (req, res, next) {
+/**
+ * Middleware to authenticate JWT token
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ * @param {Function} next - Express next function
+ */
+module.exports = async function(req, res, next) {
   // Get token from header
-  const token = req.header('Authorization');
+  const token = req.header('x-auth-token');
 
-  // Check if not token
+  // Check if no token
   if (!token) {
-    return res.status(401).json({ msg: 'No token, authorization denied' });
+    return res.status(401).json({ message: 'No token, authorization denied' });
   }
 
-  // Verify token
   try {
-    // Check if token starts with 'Bearer '
-    let actualToken = token;
-    if (token.startsWith('Bearer ')) {
-        actualToken = token.split(' ')[1];
+    // Verify token
+    const decoded = jwt.verify(token, config.jwt.secret);
+    
+    // Check if user exists
+    const user = await User.findById(decoded.id).select('-password');
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
     }
-
-    if (!actualToken) {
-        return res.status(401).json({ msg: 'Malformed token, authorization denied' });
-    }
-
-    const decoded = jwt.verify(actualToken, process.env.JWT_SECRET);
-
-    // Add user from payload
-    req.user = decoded.user; 
+    
+    // Set user object in request
+    req.user = decoded;
     next();
   } catch (err) {
-    console.error('JWT Error:', err.message); 
-    res.status(401).json({ msg: 'Token is not valid' });
+    res.status(401).json({ message: 'Token is not valid' });
   }
 }; 

@@ -3,42 +3,51 @@ const mongoose = require('mongoose');
 const ModelSchema = new mongoose.Schema({
     userId: {
         type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
+        ref: 'user',
         required: true
     },
     name: {
         type: String,
-        required: [true, 'Please provide a model name'],
-        trim: true
+        required: true
     },
     description: {
-        type: String,
-        trim: true
+        type: String
     },
     type: {
-        type: String, // e.g., 'moving_average', 'linear_regression'
-        required: [true, 'Please specify a model type'],
+        type: String,
+        required: true,
+        enum: ['regression', 'classification']
+    },
+    symbol: {
+        type: String,
+        required: true
     },
     parameters: {
-        type: Object, // Store model-specific parameters (e.g., { window: 5 } for MA)
-        default: {},
+        type: Object,
+        default: {}
     },
     features: {
-        type: [String], // Input features used (e.g., ['close', 'volume'])
-        default: [],
+        type: [String],
+        default: []
     },
     target: {
-        type: String, // Target variable (e.g., 'next_day_close')
+        type: String
     },
     status: {
         type: String,
         enum: ['new', 'training', 'trained', 'error'],
         default: 'new'
     },
+    error: {
+        type: String
+    },
     artifacts: {
-        // Could store path to pickled model, performance metrics, etc.
+        file: String,
+        createdAt: Date
+    },
+    metrics: {
         type: Object,
-        default: {},
+        default: {}
     },
     createdAt: {
         type: Date,
@@ -49,4 +58,4 @@ const ModelSchema = new mongoose.Schema({
     }
 });
 
-module.exports = mongoose.model('Model', ModelSchema); 
+module.exports = mongoose.model('model', ModelSchema); 
