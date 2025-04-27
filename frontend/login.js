@@ -8,6 +8,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const passwordInput = document.getElementById('passwordInput');
     const errorMessageDiv = document.getElementById('errorMessage');
 
+    // Function to display Bootstrap alert
+    const displayError = (message) => {
+        errorMessageDiv.innerHTML = `
+            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+        `;
+        errorMessageDiv.style.display = 'block'; // Make sure the container is visible
+    };
+
     // Redirect if already logged in
     if (localStorage.getItem('token')) {
         window.location.href = 'dashboard.html';
@@ -17,14 +28,16 @@ document.addEventListener('DOMContentLoaded', () => {
     loginForm.addEventListener('submit', async (event) => {
         event.preventDefault(); // Prevent default form submission
         errorMessageDiv.style.display = 'none'; // Hide previous errors
-        errorMessageDiv.textContent = '';
+        errorMessageDiv.textContent = ''; // Clear previous content
+        errorMessageDiv.innerHTML = ''; // Clear previous content specifically for alerts
 
         const email = emailInput.value;
         const password = passwordInput.value;
 
         if (!email || !password) {
-            errorMessageDiv.textContent = 'Please enter both email and password.';
-            errorMessageDiv.style.display = 'block';
+            // errorMessageDiv.textContent = 'Please enter both email and password.';
+            // errorMessageDiv.style.display = 'block';
+            displayError('Please enter both email and password.');
             return;
         }
 
@@ -48,13 +61,15 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 // Handle login failure
                 console.error('Login failed:', data);
-                errorMessageDiv.textContent = data.message || 'Login failed. Please check your credentials.';
-                errorMessageDiv.style.display = 'block';
+                // errorMessageDiv.textContent = data.message || 'Login failed. Please check your credentials.';
+                // errorMessageDiv.style.display = 'block';
+                displayError(data.message || 'Login failed. Please check your credentials.');
             }
         } catch (error) {
             console.error('Error during login:', error);
-            errorMessageDiv.textContent = 'An error occurred. Please try again later.';
-            errorMessageDiv.style.display = 'block';
+            // errorMessageDiv.textContent = 'An error occurred. Please try again later.';
+            // errorMessageDiv.style.display = 'block';
+            displayError('An error occurred. Please try again later.');
         }
     });
 }); 
