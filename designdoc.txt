@@ -1,0 +1,121 @@
+TD10 Master Design Document
+1. Overview
+TD10 is a single-user trading signal generator and live chart web application that serves as a personal TradingView alternative. It enables users to build, train, and deploy machine learning-based trading indicators. The application provides an intuitive interface for creating custom trading models, backtest them against historical data, and generate real-time trading signals displayed on interactive charts.
+2. Feature Breakdown
+User Authentication (signup/login)
+Dashboard for model management
+ML model creation and configuration
+Model training and backtesting
+Live charting with real-time price data
+Signal visualization on charts
+Model performance analytics
+Data management for different financial instruments
+Real-time notifications for new signals
+3. System Architecture
+Backend (Node.js/Express on Render)
+REST API Routes:
+Auth Routes: /api/signup, /api/login
+Model Routes: /api/models (CRUD), /api/models/:id/train, /api/models/:id/signal
+Data Routes: /api/data/historical/:symbol, /api/data/realtime/:symbol
+Python Integration
+Node.js backend spawns Python child processes for ML tasks
+Communication via stdin/stdout with JSON-formatted data
+Python scripts for:
+Model training: Takes historical data and parameters, returns trained model artifacts
+Signal generation: Takes real-time data and model, returns signal predictions
+Process management with timeouts, error handling, and resource cleanup
+MongoDB (Atlas)
+User Schema:
+_id: ObjectId
+email: String (unique)
+password: String (hashed)
+createdAt: Date
+Model Schema:
+_id: ObjectId
+userId: ObjectId (ref: User)
+name: String
+description: String
+type: String (algorithm type)
+parameters: Object (model parameters)
+features: Array (input features)
+target: String (target variable)
+artifacts: Object (trained model artifacts)
+createdAt: Date
+lastTrained: Date
+Signal Schema:
+_id: ObjectId
+modelId: ObjectId (ref: Model)
+symbol: String
+timestamp: Date
+value: Number (signal strength)
+direction: String (buy/sell/neutral)
+confidence: Number (0-1)
+FinancialModelingPrep API
+Historical data endpoint: /api/v3/historical-price-full/{symbol}?apikey={apiKey}
+Real-time quote endpoint: /api/v3/quote/{symbol}?apikey={apiKey}
+Will implement caching to minimize API calls
+Rate limiting to stay within API constraints
+4. Frontend Structure
+Built with Vite + Vanilla JS
+Bootstrap 5 admin template for responsive design
+Key Pages:
+Login/Signup: Authentication forms
+Dashboard:
+Model listing with status indicators
+Create/edit model forms
+Training controls and progress indicators
+Performance metrics visualizations
+Live Chart:
+Interactive TradingView Lightweight Charts
+Symbol selector
+Timeframe controls
+Signal overlay toggles
+Real-time price updates
+Signal markers with tooltips
+5. User Workflow
+User logs in with credentials
+From Dashboard, user creates a new model by:
+Selecting trading instrument (symbol)
+Choosing features (price, volume, indicators)
+Setting model parameters
+Configuring signal thresholds
+User initiates model training:
+Backend pulls historical data
+Python script processes data and trains model
+Results and performance metrics are stored and displayed
+User navigates to Live Chart:
+Selects trained model to activate
+Views real-time price chart with overlaid signals
+Receives notifications when new signals are generated
+User can return to Dashboard to manage multiple models or retrain existing ones
+6. Development Phases
+Phase 1: Project Setup and Infrastructure
+Backend and frontend project initialization
+Database setup and schema creation
+Authentication system implementation
+API scaffolding and testing
+Phase 2: Data Integration
+FinancialModelingPrep API integration
+Historical data fetching and processing
+Real-time data streaming setup
+Data caching and management
+Phase 3: ML Pipeline Integration
+Python script development for model training
+Node.js-Python process communication
+Model storage and retrieval system
+Basic signal generation implementation
+Phase 4: Frontend Core
+Dashboard UI implementation
+Model management interface
+Training interface with progress indication
+Basic charting functionality
+Phase 5: Advanced Features
+Real-time chart with signal overlay
+Advanced model configuration options
+Performance analytics dashboard
+Signal notification system
+Phase 6: Testing and Deployment
+End-to-end testing
+Performance optimization
+Deployment to Render (backend) and Netlify (frontend)
+Documentation and user guide
