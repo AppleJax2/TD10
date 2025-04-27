@@ -64,6 +64,9 @@
     <div class="main-content">
         <h1 class="mb-4">Dashboard</h1>
         
+        <!-- Area for displaying dashboard-wide errors -->
+        <div id="dashboardErrorMessages" class="mb-3"></div>
+
         <!-- Model Creation Form -->
         <div class="card mb-4">
             <div class="card-header">Create New Model</div>
@@ -82,7 +85,15 @@
                             <label for="modelType" class="form-label">Algorithm Type</label>
                             <input type="text" class="form-control" id="modelType" placeholder="e.g., LSTM" required>
                         </div>
-                        <!-- Add fields for parameters, features, target later -->
+                        <div class="col-md-6">
+                            <label for="modelFeatures" class="form-label">Features (comma-separated)</label>
+                            <input type="text" class="form-control" id="modelFeatures" placeholder="e.g., close,volume,sma5" required>
+                        </div>
+                        <div class="col-md-6">
+                            <label for="modelTarget" class="form-label">Target Variable</label>
+                            <input type="text" class="form-control" id="modelTarget" placeholder="e.g., next_day_direction" required>
+                        </div>
+                        <!-- Add fields for parameters later -->
                         <div class="col-12 mt-3">
                             <button type="submit" class="btn btn-primary">Create Model</button>
                         </div>
